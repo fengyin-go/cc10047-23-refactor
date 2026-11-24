@@ -139,38 +139,30 @@ def retention_checker(
     snapshots: list[dict[str, Any]],
     retention_days: int = 30,
     min_versions: int = 5,
+    decision_time: Any = None,
 ) -> dict[str, Any]:
-    """检查快照保留策略：标记可清理的过期快照。"""
-    from datetime import datetime, timedelta, timezone
+    """检查快照保留策略：标记可清理的过期快照。
 
-    cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
-    expired = []
-    valid = []
+    保留天数与最低版本的读取计算已收拢到共用保留边界模块
+    （``app.retention_boundary.build_retention_boundary``），本函数保持旧的
+    入参与返回键不变，仅作为共用边界结果的兼容视图。
+    """
+    from app.retention_boundary import build_retention_boundary
 
-    for snap in snapshots:
-        ts = str(snap.get("created_at", ""))
-        # Strip timezone to make comparison naive
-        for suffix in ("Z", "+00:00", "+0000"):
-            ts = ts.replace(suffix, "")
-        ts = ts.split("+")[0]
-        try:
-            created = datetime.fromisoformat(ts)
-        except (ValueError, TypeError):
-            created = cutoff + timedelta(days=1)
-        if created.replace(tzinfo=None) < cutoff.replace(tzinfo=None):
-            expired.append(snap)
-        else:
-            valid.append(snap)
-
-    can_clean = max(0, len(expired) - min_versions)
+    boundary = build_retention_boundary(
+        snapshots,
+        retention_days=retention_days,
+        min_versions=min_versions,
+        decision_time=decision_time,
+    )
     return {
-        "total_snapshots": len(snapshots),
-        "expired_count": len(expired),
-        "valid_count": len(valid),
-        "min_versions_required": min_versions,
-        "retention_days": retention_days,
-        "can_clean_count": can_clean,
-        "should_clean": can_clean > 0,
+        "total_snapshots": boundary["total_snapshots"],
+        "expired_count": boundary["expired_count"],
+        "valid_count": boundary["valid_count"],
+        "min_versions_required": boundary["min_versions_required"],
+        "retention_days": boundary["retention_days"],
+        "can_clean_count": boundary["can_clean_count"],
+        "should_clean": boundary["should_clean"],
     }
 
 

@@ -77,5 +77,27 @@ npm run dev
 - 列表接口统一返回 `{ items, total, page, size }`，动作接口统一返回 `{ ok, message }`。
 - 状态流转只允许在 `app/services` 里改，路由层不做业务判断。
 
+## 共用保留边界与生命周期清理
+
+保留策略（`retention_policy`）与历史清理作业（`vacuum_job`）对保留天数、
+最低版本和快照时间的读取计算已收拢到 `app/retention_boundary.py`，两处入口
+共用同一份保留边界结果数据（内存表 `retention_boundary`）与审计台账
+（`retention_audit`）：
+
+- 边界首次核定即固定**判断时点**（`decision_time`），中断恢复、并发重试都复用
+  同一时点，一次执行只能照同一时点处理；恢复时按当前时间复算只做对比，新到期
+  对象不得混入原作业，冲突仅追加一条「时点冲突」审计。
+- 释放登记幂等：同一快照在并发恢复和重复清理中只登记一次释放（`release_count`
+  不重复累加），逐快照历史核查结论随边界落库、随时可回看。
+- 清理结论回写保留策略审计台账；作业列表/详情仍展示原作业与全部后续尝试。
+- `retention_checker` 与两个 `domain_*` 方法的旧入参、旧返回键保持不变，边界
+  信息通过附加键返回。
+
+相关接口（前缀 `/api/lifecycle`）：快照目录登记 `POST /catalog`、策略核查
+`POST /retention-policies/{id}/check`、清理执行 `POST /vacuum-jobs/{id}/clean`、
+清理详情 `GET /vacuum-jobs/{id}/detail`、边界查询 `GET /boundaries`、
+审计台账 `GET /audit`。J18 中断/跨期重演脚本：
+`backend/scripts/replay_j18.py`（`.venv/bin/python -I scripts/replay_j18.py`）。
+
 领域：数据工程
 子方向：数仓与数据湖
